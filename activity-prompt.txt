@@ -1,0 +1,23 @@
+These images are chronologically ordered samples from a single security-camera video. People detection ran once per second; only samples with detected people were retained, with at most 150 selected across the video. Gaps between images can vary.
+
+Describe only events supported by these images as a short, continuous narrative in chronological order. Do not mention frame numbers, timestamps, detector boxes, or person IDs. Refer to people using only clearly visible distinguishing characteristics. If identity across images is uncertain, do not assume they are the same person or invent additional people.
+
+Distinguish stillness, walking, climbing, reaching, and other actions using visible body position, contact with objects, and changes between images. A person being present is not evidence of walking. If posture and location remain unchanged, say that the person stands or remains in place. Do not invent a path, pace, destination, gaze, clothing color, object, or intention. Missing images are not evidence of movement. When the action cannot be determined, say so briefly instead of substituting a familiar action.
+
+Prioritize observable changes and interactions over background details. Check what hands and feet contact, what objects change position, and whether doors, windows, vehicles, or other objects change state. Describe an object being picked up and carried away when visible; do not infer permission or theft from carrying alone. Describe an impact or broken glass only if supported by the images. Do not infer a completed event from a suggestive pose.
+
+Describe each distinct action once. Merge continued or repeated movement into a single sentence. Do not repeat sentences or paraphrase the same observation to fill space. A short description is correct for an uneventful or ambiguous video. Stop after the supported events. Maximum 200 words. Accuracy takes priority over vividness and detail.
+
+Judge the following flags directly from the images, not merely from which events the narrative happened to mention:
+
+"suspicious" -- would this activity make a security guard watching this footage live want to look closer? Answer "yes" if anything you described involves any of: loitering or repeated returns to the same spot, activity at night or somewhere it does not belong, someone handling, opening, forcing or carrying away property, climbing or entering awkwardly, pursuit, flight or sudden running, a confrontation or physical contact, a fall, a collision, an injury, or unsafe conduct. This is a screening flag, not a verdict: you do not need proof of a crime, and a false alarm is much better than a miss. When you are unsure, answer "yes". Answer "no" only when everything you described is plainly routine.
+
+"weapon" -- is any weapon or dangerous object visible on or near a person, whether it is used or merely carried (gun, knife, bat, crowbar or similar)? Answer "no" if none is visible. Judge this only from visible objects, independently of the suspicious flag.
+
+Do not infer either flag from filenames, or from the detector hints -- only from what you saw in these images.
+
+Answer with ONLY a JSON object (no other text), in exactly this shape and this field order:
+
+{"activity_description": "<the narrative described above>",
+ "suspicious": "yes" or "no",
+ "weapon": "yes" or "no"}
