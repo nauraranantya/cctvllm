@@ -27,6 +27,57 @@ app.Use(async (ctx, next) => {
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+string[] videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".mpeg", ".mpg", ".mts", ".m2ts", ".wmv", ".3gp", ".ogv"];
+var scanGate = new SemaphoreSlim(1, 1);
+
+// The browser's folder picker only ever reports a folder *name*, never its path, so a linked
+// folder is entered as text and read by the server. That is the whole point of the feature:
+// this server runs on the same machine as the videos, so it can re-read the folder later on
+// its own -- a picker selection is a one-time snapshot that cannot be refreshed.
+string ResolveFolder(string raw) {
+    var value = raw.Trim();
+    if (value.StartsWith('~'))
+        value = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), value[1..].TrimStart('/'));
+    if (!Path.IsPathRooted(value)) throw new UserError("Enter the folder's full path, starting with / or ~.");
+    var full = Path.GetFullPath(value);
+    if (!Directory.Exists(full)) throw new UserError("There is no folder at that path.", 404);
+    return full;
+}
+
+async Task<object> ScanFolder(QueueStore store, VideoTools videos, CancellationToken ct) {
+    var folder = store.LinkedFolder ?? throw new UserError("Link a folder first.");
+    if (!Directory.Exists(folder)) throw new UserError("The linked folder is no longer there. Link it again.", 404);
+    if (!await scanGate.WaitAsync(0, ct)) throw new UserError("A refresh is already running.", 409);
+    try {
+        var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+            .Where(p => videoExtensions.Contains(Path.GetExtension(p).ToLowerInvariant()))
+            .Where(p => !Path.GetFileName(p).StartsWith('.'))   // .DS_Store, macOS ._ resource forks
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
+        var errors = new List<string>();
+        int added = 0, skipped = 0;
+        foreach (var path in files) {
+            ct.ThrowIfCancellationRequested();
+            if (store.AlreadyImported(path)) { skipped++; continue; }
+            var label = Path.GetRelativePath(folder, path);
+            try {
+                var size = new FileInfo(path).Length;
+                if (size > VideoTools.MaxBytes) throw new UserError("Maximum file size is 500 MB.");
+                var info = await videos.Inspect(path, ct);
+                var job = new VideoJob {
+                    Id = Guid.NewGuid().ToString("N"), Name = Path.GetFileName(path),
+                    SourcePath = path, Duration = info.Duration, Fps = info.Fps, Bytes = size
+                };
+                var dir = store.Folder(job.Id); Directory.CreateDirectory(dir);
+                try { await videos.Poster(path, Path.Combine(dir, "poster.jpg"), ct); store.Add(job); added++; }
+                catch { Directory.Delete(dir, true); throw; }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { errors.Add($"{label}: {(ex is UserError ? ex.Message : "could not be read.")}"); }
+        }
+        return new { linkedFolder = folder, added, skipped, errors };
+    } finally { scanGate.Release(); }
+}
+
 app.MapGet("/api/state", (QueueStore s) => s.Snapshot());
 app.MapGet("/api/health", () => new { ok = true, backend = "ASP.NET Core", version = Environment.Version.ToString() });
 app.MapGet("/api/models", async (string? endpoint, IHttpClientFactory clients, CancellationToken ct) => {
@@ -57,6 +108,10 @@ app.MapPost("/api/settings", (ModelSettings value, QueueStore s) => {
         throw new UserError("Enter a valid server URL without embedded credentials.");
     if (value.Mode == "local" && !uri.IsLoopback) throw new UserError("Local mode requires a localhost address.");
     if (value.Mode == "local" && string.IsNullOrWhiteSpace(value.Model)) throw new UserError("Enter a model name.");
+    if ((value.FlagActivity?.Length ?? 0) > 4000 || (value.SiteContext?.Length ?? 0) > 4000)
+        throw new UserError("Criteria and context must each be 4,000 characters or less.");
+    if (value.Mode == "notebook" && (!string.IsNullOrWhiteSpace(value.FlagActivity) || value.SiteContextEnabled || !value.WeaponEnabled))
+        throw new UserError("Custom screening settings currently require a local model.");
     s.SetSettings(value with { Endpoint = value.Endpoint.TrimEnd('/'), Model = value.Model.Trim() });
     return Results.Ok(new { ok = true });
 });
@@ -80,10 +135,27 @@ app.MapPost("/api/videos", async (HttpRequest request, QueueStore s, VideoTools 
         s.Add(job); return Results.Ok(job);
     } catch { Directory.Delete(dir, true); throw; }
 });
+app.MapPost("/api/folder", async (LinkRequest value, QueueStore s, VideoTools videos, CancellationToken ct) => {
+    if (string.IsNullOrWhiteSpace(value.Path)) {
+        s.SetLinkedFolder(null);
+        return Results.Ok(new { linkedFolder = (string?)null, added = 0, skipped = 0, errors = new List<string>() });
+    }
+    var folder = ResolveFolder(value.Path);
+    if (folder.Equals(s.Root, StringComparison.OrdinalIgnoreCase) ||
+        folder.StartsWith(s.Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        throw new UserError("That is the app's own data folder. Choose the folder your videos are in.");
+    s.SetLinkedFolder(folder);
+    return Results.Ok(await ScanFolder(s, videos, ct));
+});
+app.MapPost("/api/folder/refresh", async (QueueStore s, VideoTools videos, CancellationToken ct) =>
+    Results.Ok(await ScanFolder(s, videos, ct)));
 app.MapGet("/api/videos/{id}/{asset}", (string id, string asset, QueueStore s) => {
     var job = s.Get(id);
     if (asset is not ("video" or "poster.jpg")) return Results.NotFound();
-    var path = Path.Combine(s.Folder(job.Id), asset);
+    var path = asset == "video" ? s.VideoPath(job) : Path.Combine(s.Folder(job.Id), asset);
+    if (!File.Exists(path))
+        throw new UserError(asset == "video" && job.SourcePath is not null
+            ? "This video is no longer at its original path in the linked folder." : "File not found.", 404);
     var type = "image/jpeg";
     if (asset == "video" && !new FileExtensionContentTypeProvider().TryGetContentType(job.Name, out type)) type = "video/mp4";
     return Results.File(path, type, enableRangeProcessing: true);
@@ -102,10 +174,19 @@ app.MapPost("/api/videos/{id}/{action}", (string id, string action, QueueStore s
 app.Run();
 
 public sealed class UserError(string message, int status = 400) : Exception(message) { public int Status { get; } = status; }
-public sealed record ModelSettings(string Mode = "local", string Endpoint = "http://127.0.0.1:11434/v1", string Model = "gemma4:e2b-it-qat", bool PersonLabels = true);
+public sealed record ModelSettings(string Mode = "local", string Endpoint = "http://127.0.0.1:11434/v1", string Model = "gemma4:e2b-it-qat", bool PersonLabels = true) {
+    public string FlagActivity { get; init; } = "";
+    public bool SiteContextEnabled { get; init; }
+    public string SiteContext { get; init; } = "";
+    public bool WeaponEnabled { get; init; } = true;
+}
+public sealed record LinkRequest(string? Path);
 public sealed record VideoJob {
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
+    // Set only for videos discovered in the linked folder. The file stays where the user keeps
+    // it and is read in place; nothing is copied into data/, and removing the job never touches it.
+    public string? SourcePath { get; init; }
     public string Status { get; init; } = "queued";
     public string Stage { get; init; } = "Queued";
     public double Duration { get; init; }
@@ -115,6 +196,7 @@ public sealed record VideoJob {
     public string? Description { get; init; }
     public string? Suspicious { get; init; }
     public string? Weapon { get; init; }
+    public bool WeaponEnabled { get; init; } = true;
     public string? Error { get; init; }
     public string? RawText { get; init; }
     public string? Model { get; init; }
@@ -123,13 +205,18 @@ public sealed record VideoJob {
     public double[] Timestamps { get; init; } = [];
     public double? Elapsed { get; init; }
 }
-public sealed record StoredState(ModelSettings Settings, List<VideoJob> Jobs);
+// LinkedFolder is a property rather than a constructor parameter so a state.json written
+// before this feature existed still deserializes, with the folder simply absent.
+public sealed record StoredState(ModelSettings Settings, List<VideoJob> Jobs) {
+    public string? LinkedFolder { get; init; }
+}
 public sealed class QueueStore {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly object gate = new();
     private readonly string root;
     private List<VideoJob> items = [];
     private ModelSettings settings = new();
+    private string? linkedFolder;
     private bool running;
     public QueueStore(IWebHostEnvironment env) {
         root = Environment.GetEnvironmentVariable("CCTV_DATA_DIR") ?? Path.Combine(env.ContentRootPath, "data");
@@ -137,14 +224,26 @@ public sealed class QueueStore {
         if (File.Exists(Path.Combine(root, "state.json"))) {
             var saved = JsonSerializer.Deserialize<StoredState>(File.ReadAllText(Path.Combine(root, "state.json")), Json)!;
             settings = saved.Settings;
+            linkedFolder = saved.LinkedFolder;
             items = saved.Jobs.Select(j => j.Status == "processing" ? j with { Status = "queued", Stage = "Queued after restart" } : j).ToList();
         }
     }
     private void Persist() {
-        File.WriteAllText(Path.Combine(root, "state.tmp"), JsonSerializer.Serialize(new StoredState(settings, items), Json));
+        File.WriteAllText(Path.Combine(root, "state.tmp"),
+            JsonSerializer.Serialize(new StoredState(settings, items) { LinkedFolder = linkedFolder }, Json));
         File.Move(Path.Combine(root, "state.tmp"), Path.Combine(root, "state.json"), true);
     }
-    public object Snapshot() { lock (gate) return new { jobs = items.ToArray(), running, settings, frameLimit = VideoTools.MaxFrames }; }
+    public object Snapshot() { lock (gate) return new { jobs = items.ToArray(), running, settings, linkedFolder, frameLimit = VideoTools.MaxFrames }; }
+    public string Root => root;
+    public string? LinkedFolder { get { lock (gate) return linkedFolder; } }
+    public void SetLinkedFolder(string? value) { lock (gate) { linkedFolder = value; Persist(); } }
+    // Where this job's video actually lives: in the user's linked folder, or in the job's own
+    // folder for an uploaded file. Everything downstream reads the video through here.
+    public string VideoPath(VideoJob job) => job.SourcePath ?? Path.Combine(Folder(job.Id), "video");
+    public bool AlreadyImported(string sourcePath) {
+        lock (gate) return items.Any(j => j.SourcePath is not null &&
+            string.Equals(j.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase));
+    }
     public string Folder(string id) {
         if (!Guid.TryParseExact(id, "N", out _)) throw new UserError("Video not found.", 404);
         return Path.Combine(root, id);
@@ -181,6 +280,8 @@ public sealed class QueueStore {
         lock (gate) {
             var job = Get(id);
             if (job.Status == "processing") throw new UserError("Cancel the video before removing it.", 409);
+            // Only the job's own folder goes: a linked video is never copied here, so the
+            // user's original file is untouched. Refreshing the folder re-imports it.
             items.Remove(job); Persist(); Directory.Delete(Folder(id), true);
         }
     }

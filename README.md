@@ -55,3 +55,6 @@ YOLO now runs once per second. Samples without detected people are discarded bef
 
 ## Bounded model requests
 Selected frames are now processed in chronological batches of at most six images. Context-size rejections recursively split only the rejected batch; no selected images are silently dropped. Each request receives the full prompt and a rolling narrative summary. Any positive suspicious/weapon flag is retained across batches. Raw batch results are saved beside the video in batch-responses.json. Summarization may lose detail or carry forward model mistakes; this change addresses request size, not verified accuracy.
+
+## UI refresh
+The interface uses the supplied dashboard reference for spacing, a sidebar, rounded panels, a prominent video area, and a separate description card. The supplied PHR guide informs the Segoe UI font stack and primary palette (#106DB6, #ABC437, #EC1E32), with darker shades for readable status text. Summary counts use saved queue data. Desktop and 390px layouts, queue selection, and settings navigation were checked. The inference pipeline was not changed by this visual refresh.
