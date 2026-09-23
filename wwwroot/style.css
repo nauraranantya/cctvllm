@@ -30,3 +30,5 @@ dialog{border:1px solid #e1eaf1;border-radius:19px;width:450px;max-width:calc(10
 dialog textarea{width:100%;display:block;margin-top:8px;padding:10px 12px;font:inherit;line-height:1.5;color:var(--ink);border:1px solid #ccdbe5;border-radius:8px;resize:vertical}
 dialog textarea:disabled{opacity:.5;background:var(--bg)}
 dialog .toggle-label input{display:inline-block;width:auto;margin:0 8px 0 0}
+
+.queue-number{flex:none;min-width:2ch;text-align:center;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted)}

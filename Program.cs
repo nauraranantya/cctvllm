@@ -110,8 +110,6 @@ app.MapPost("/api/settings", (ModelSettings value, QueueStore s) => {
     if (value.Mode == "local" && string.IsNullOrWhiteSpace(value.Model)) throw new UserError("Enter a model name.");
     if ((value.FlagActivity?.Length ?? 0) > 4000 || (value.SiteContext?.Length ?? 0) > 4000)
         throw new UserError("Criteria and context must each be 4,000 characters or less.");
-    if (value.Mode == "notebook" && (!string.IsNullOrWhiteSpace(value.FlagActivity) || value.SiteContextEnabled || !value.WeaponEnabled))
-        throw new UserError("Custom screening settings currently require a local model.");
     s.SetSettings(value with { Endpoint = value.Endpoint.TrimEnd('/'), Model = value.Model.Trim() });
     return Results.Ok(new { ok = true });
 });

@@ -58,3 +58,24 @@ Selected frames are now processed in chronological batches of at most six images
 
 ## UI refresh
 The interface uses the supplied dashboard reference for spacing, a sidebar, rounded panels, a prominent video area, and a separate description card. The supplied PHR guide informs the Segoe UI font stack and primary palette (#106DB6, #ABC437, #EC1E32), with darker shades for readable status text. Summary counts use saved queue data. Desktop and 390px layouts, queue selection, and settings navigation were checked. The inference pipeline was not changed by this visual refresh.
+
+### Qwen3 notebook backend
+Use ../01_cctv_qwen3_ui.ipynb on a CUDA GPU (Kaggle or another GPU host).
+Run sections 1–5; the optional dataset evaluation is not needed for the UI.
+The default model is Qwen/Qwen3-VL-8B-Instruct in NF4 4-bit.
+The notebook embeds this app's base prompt and person-tracking script.
+
+Choose an API key in the notebook and set the same CCTV_API_KEY environment
+variable before starting this app. For Kaggle, forward notebook port 8000
+through an HTTPS tunnel, then select Notebook GPU and enter the tunnel's
+base URL in Model settings. No tunnel is created automatically.
+
+The app sends custom flag activity, optional site/camera context, weapon
+screening and person-label settings with each upload. The notebook must expose
+/api/capabilities with screening_settings=true and /api/describe accepting
+multipart fields file and settings. Weapon disabled returns null.
+Previous notebook endpoints without this settings contract need updating.
+
+The updated notebook retains optional UCA description evaluation, with its own
+qwen3_descriptions.csv. Original notebooks are unchanged. GPU inference has
+not been run on this Mac; validate speed and accuracy on the GPU host.

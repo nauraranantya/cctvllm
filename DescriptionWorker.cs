@@ -39,8 +39,8 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
                     store.Update(job.Id, j => j with {
                         Status = "completed", Stage = "Completed", Description = result.Description,
                         Suspicious = result.Suspicious, Weapon = config.WeaponEnabled ? result.Weapon : null, WeaponEnabled = config.WeaponEnabled, RawText = result.Raw,
-                        Timestamps = result.Timestamps, Model = config.Mode == "local" ? config.Model : "Notebook backend",
-                        BackendMode = config.Mode, PersonLabels = config.Mode == "local" && config.PersonLabels, Elapsed = Math.Round(watch.Elapsed.TotalSeconds, 1)
+                        Timestamps = result.Timestamps, Model = result.ModelName ?? (config.Mode == "local" ? config.Model : "Notebook backend"),
+                        BackendMode = config.Mode, PersonLabels = config.PersonLabels, Elapsed = Math.Round(watch.Elapsed.TotalSeconds, 1)
                     });
                 }
             } catch (OperationCanceledException) {
@@ -320,12 +320,23 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
         using var form = new MultipartFormDataContent();
         using var part = new StreamContent(file);
         part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        // Require the versioned settings contract before uploading to a notebook.
+        using var capabilitiesResponse = await client.GetAsync(config.Endpoint.TrimEnd('/') + "/api/capabilities", ct);
+        using var capabilities = await ReadResponse(capabilitiesResponse, ct);
+        if (!capabilities.RootElement.TryGetProperty("screening_settings", out var supported) || supported.ValueKind != JsonValueKind.True)
+            throw new UserError("This notebook does not support screening settings. Use the updated Qwen3 UI notebook.", 422);
         form.Add(part, "file", job.Name);
+        form.Add(new StringContent(JsonSerializer.Serialize(new {
+            flag_activity = config.FlagActivity ?? "", site_context_enabled = config.SiteContextEnabled,
+            site_context = config.SiteContext ?? "", weapon_enabled = config.WeaponEnabled,
+            person_labels = config.PersonLabels
+        }), Encoding.UTF8, "application/json"), "settings");
         using var response = await client.PostAsync(config.Endpoint.TrimEnd('/') + "/api/describe", form, ct);
         using var doc = await ReadResponse(response, ct);
         var data = doc.RootElement;
         var stamps = data.TryGetProperty("timestamps", out var ts) ? ts.EnumerateArray().Select(x => x.GetDouble()).ToArray() : [];
-        return ParseResult(data, data.TryGetProperty("raw_text", out var raw) ? raw.GetString() ?? "" : "", stamps);
+        return ParseResult(data, data.TryGetProperty("raw_text", out var raw) ? raw.GetString() ?? "" : "", stamps, config.WeaponEnabled)
+            with { ModelName = data.TryGetProperty("model", out var model) ? model.GetString() : "Notebook backend" };
     }
     private static DescriptionResult ParseResult(JsonElement root, string raw, double[] timestamps, bool weaponEnabled = true) {
         var description = root.TryGetProperty("activity_description", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
@@ -352,5 +363,5 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
         }
         throw new UserError("The model returned incomplete or invalid JSON. Its raw response was saved; retry this video.", 502);
     }
-    private sealed record DescriptionResult(string Description, string? Suspicious, string? Weapon, string Raw, double[] Timestamps);
+    private sealed record DescriptionResult(string Description, string? Suspicious, string? Weapon, string Raw, double[] Timestamps, string? ModelName = null);
 }
