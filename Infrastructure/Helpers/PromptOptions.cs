@@ -4,6 +4,8 @@ public static class PromptOptions {
     // The base prompt stays on disk unchanged; deployment-specific rules are appended.
     public const string Template = """
         
+        Aturan bahasa wajib: tulis seluruh nilai activity_description dalam Bahasa Indonesia yang alami. Jangan gunakan bahasa Inggris, kecuali nama diri atau teks yang memang terlihat pada gambar. Nama kolom JSON dan nilai "yes"/"no" harus tetap persis seperti yang ditentukan.
+
         Pengaturan penerapan:
         Kriteria aktivitas yang ditandai: {flag_activity}
         Jika kriteria khusus diberikan, kriteria ini menggantikan kriteria suspicious pada prompt dasar.
