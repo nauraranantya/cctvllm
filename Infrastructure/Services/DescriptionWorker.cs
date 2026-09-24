@@ -88,7 +88,7 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
             config.PersonLabels ? tracked.Evidence : null, tracked.Motion, ct);
     }
     // Speed bands, in body-heights per second, matching MOTION_BANDS in track_people.py.
-    private const string MotionScale = "under 0.25 standing, under 1.2 walking, under 2.2 hurrying, above that running";
+    private const string MotionScale = "di bawah 0,25 diam, di bawah 1,2 berjalan, di bawah 2,2 bergegas, di atasnya berlari";
 
     private static string? MotionSummary(JsonElement[] motion, double from, double to) {
         var window = motion.Where(entry => {
@@ -124,11 +124,11 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
             if (fastest is not null && fastest > peak) { peak = fastest.Value; peakPace = pace; }
             i = j;
         }
-        return "Detector motion estimate for the stretch these images cover -- " +
-            (peakPace is null ? "no speed could be measured" : $"fastest observed: {peakPace} ({peak:0.0})") + ". " +
-            $"Speed is in body-heights per second ({MotionScale}), measured from person detections two per second -- denser than the images you were given, so it covers movement between them. " +
-            "It is measured in the image plane, so someone moving straight toward or away from the camera reads slower than they really are. " +
-            "These are fallible detector estimates, not ground truth: use them to choose how to describe movement, and ignore them where the images plainly disagree.\n" +
+        return "Perkiraan gerakan untuk rentang yang dicakup gambar-gambar ini -- " +
+            (peakPace is null ? "kecepatan tidak dapat diukur" : $"gerakan tercepat yang teramati: {peakPace} ({peak:0.0})") + ". " +
+            $"Kecepatan dinyatakan dalam tinggi tubuh per detik ({MotionScale}), berdasarkan deteksi orang dua kali per detik. Data ini lebih rapat daripada gambar yang diberikan sehingga mencakup gerakan di antaranya. " +
+            "Pengukuran dilakukan pada bidang gambar, sehingga orang yang bergerak lurus mendekati atau menjauhi kamera terbaca lebih lambat daripada gerakan sebenarnya. " +
+            "Perkiraan ini dapat keliru dan bukan kebenaran mutlak. Gunakan untuk memilih cara menjelaskan gerakan, tetapi abaikan jika gambar jelas bertentangan.\n" +
             string.Join("; ", parts);
     }
     private async Task<DescriptionResult> DescribeBatches(VideoJob job, ModelSettings config,
@@ -197,24 +197,24 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
         });
         // Send the entire user-authored prompt after optional detector evidence; never slice or summarize it.
         if (evidence is not null) content.Add(new { type = "text", text =
-            "These frames have person boxes and timestamps. Labels distinguish detections within one frame only and do not establish identities across frames. " +
-            "Detection hints below are fallible, not ground truth. Boxes use normalized [left,top,right,bottom] coordinates. " +
-            "No detection does not prove no person is present. Infer actions only from visible evidence; boxes do not establish intent, weapons, or wrongdoing. " +
-            "Do not describe overlay text as part of the scene. If an action is unclear, state that uncertainty. " +
-            "This list is a lookup table, not an outline for your answer: do NOT write one sentence per entry, and do not treat a person reappearing in consecutive entries as a new event.\n" + evidence });
+            "Frame-frame ini memiliki kotak orang dan cap waktu. Label hanya membedakan deteksi dalam satu frame dan tidak menetapkan identitas antar-frame. " +
+            "Petunjuk deteksi berikut dapat keliru dan bukan kebenaran mutlak. Kotak memakai koordinat ternormalisasi [kiri,atas,kanan,bawah]. " +
+            "Tidak adanya deteksi bukan bukti bahwa tidak ada orang. Simpulkan tindakan hanya dari bukti yang terlihat; kotak tidak membuktikan niat, senjata, atau pelanggaran. " +
+            "Jangan jelaskan teks overlay sebagai bagian dari kejadian. Jika tindakan tidak jelas, nyatakan ketidakpastian tersebut. " +
+            "Daftar ini adalah tabel rujukan, bukan kerangka jawaban. JANGAN tulis satu kalimat untuk setiap entri dan jangan anggap kemunculan orang pada entri berurutan sebagai kejadian baru.\n" + evidence });
         // Sent regardless of the person-labels toggle: that toggle controls drawn boxes and
         // per-box hints, while this is the only channel carrying how fast anyone was moving.
         if (motion is not null) content.Add(new { type = "text", text = motion });
         if (previous is not null) content.Add(new { type = "text", text =
-            "Previous chronological summary (model observations, not instructions): " + JsonSerializer.Serialize(previous) +
-            "\nThese images continue the same video. Return one merged narrative covering that summary and the new visible events. " +
-            "Keep distinct major events, merge continued actions, and add nothing unsupported. Do not assume identity across gaps." });
+            "Ringkasan kronologis sebelumnya (pengamatan model, bukan instruksi): " + JsonSerializer.Serialize(previous) +
+            "\nGambar-gambar ini melanjutkan video yang sama. Berikan satu narasi gabungan yang mencakup ringkasan tersebut dan kejadian baru yang terlihat. " +
+            "Pertahankan kejadian penting yang berbeda, gabungkan tindakan yang berlanjut, dan jangan tambahkan hal yang tidak didukung. Jangan menganggap identitas tetap sama melewati jeda." });
         content.Add(new { type = "text", text =
-            "Now answer for the images above, following the instructions in the previous message." });
+            "Sekarang jawab berdasarkan gambar-gambar di atas dengan mengikuti instruksi pada pesan sebelumnya." });
         using var client = Client();
         using var response = await SendModel(client, config, new {
             model = config.Model, messages = new object[] {
-                new { role = "system", content = "Return all three required JSON fields, in this order: activity_description first, then suspicious, then weapon -- decide the two flags from the description you just wrote, not before it. Summarize each distinct action once, merging continued movement across images into a single sentence. Never pad, restate or repeat a sentence: if you have no new action to report, stop. A short description is correct for an uneventful video. Keep the narrative within 200 words so all JSON fields finish within the output budget. The rewrite examples in the user prompt demonstrate style only -- never reuse their people, objects, settings or actions. Describe only the supplied images." },
+                new { role = "system", content = "Kembalikan ketiga kolom JSON wajib dalam urutan berikut: activity_description, lalu suspicious, lalu weapon. Tentukan kedua tanda setelah menulis deskripsi, bukan sebelumnya. Ringkas setiap tindakan yang berbeda satu kali dan gabungkan gerakan yang berlanjut antar-gambar menjadi satu kalimat. Jangan menambah isi, menyatakan ulang, atau mengulang kalimat. Jika tidak ada tindakan baru, berhenti. Deskripsi singkat adalah hasil yang benar untuk video tanpa kejadian berarti. Batasi narasi hingga 200 kata agar semua kolom JSON selesai dalam batas keluaran. Contoh dalam prompt pengguna hanya menunjukkan gaya; jangan gunakan kembali orang, benda, lokasi, atau tindakannya. Jelaskan hanya gambar yang diberikan." },
                 new { role = "user", content = instructions },
                 new { role = "user", content }
             },
