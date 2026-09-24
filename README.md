@@ -79,3 +79,16 @@ Previous notebook endpoints without this settings contract need updating.
 The updated notebook retains optional UCA description evaluation, with its own
 qwen3_descriptions.csv. Original notebooks are unchanged. GPU inference has
 not been run on this Mac; validate speed and accuracy on the GPU host.
+
+### Experimental TPU v5e-8 backend
+Use ../01_cctv_qwen3_ui_tpu_v5e8.ipynb when Kaggle is configured for TPU
+v5e-8. It keeps the same HTTP/UI contract but loads Qwen3-VL-4B-Instruct in
+BF16 through replicated PyTorch/XLA SPMD. XLA auto-sharding is disabled because
+it aborts on Qwen3-VL's multimodal tuple graph in Kaggle. It does not use CUDA
+or bitsandbytes. Its evaluation checkpoint is qwen3_tpu_descriptions.csv.
+
+Qwen3-VL is not an officially validated PyTorch/XLA or MaxText multimodal
+model. Treat this notebook as experimental: the first request can spend
+several minutes compiling, new input shapes can trigger more compilation, and
+the model may expose unsupported XLA operations. The GPU notebook remains the
+reliable fallback and is not modified by the TPU notebook.
