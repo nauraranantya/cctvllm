@@ -133,6 +133,7 @@ async function loadModels(){
 $('settingsButton').onclick=()=>{
  $('mode').value=state.settings.mode;$('endpoint').value=state.settings.endpoint;
  setModelOptions([],state.settings.model);$('personLabels').checked=state.settings.personLabels!==false;
+ $('batchProcessing').checked=state.settings.batchProcessing===true;
  $('flagActivity').value=state.settings.flagActivity||'';
  $('siteContextEnabled').checked=state.settings.siteContextEnabled===true;
  $('siteContext').value=state.settings.siteContext||'';
@@ -144,7 +145,7 @@ $('refreshModels').onclick=loadModels;
 $('endpoint').onchange=loadModels;
 $('mode').onchange=()=>{modelListRequest++;$('refreshModels').disabled=false;$('endpoint').value=$('mode').value==='local'?'http://127.0.0.1:11434/v1':'';settingsNote();loadModels()};
 $('close').onclick=()=>$('settings').close();
-$('settingsForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:$('mode').value,endpoint:$('endpoint').value,model:$('model').value,personLabels:$('personLabels').checked,flagActivity:$('flagActivity').value,siteContextEnabled:$('siteContextEnabled').checked,siteContext:$('siteContext').value,weaponEnabled:$('weaponEnabled').checked})});$('settings').close();await refresh();toast('Settings saved.')}catch(e){$('settingsError').textContent=e.message}};
+$('settingsForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:$('mode').value,endpoint:$('endpoint').value,model:$('model').value,personLabels:$('personLabels').checked,batchProcessing:$('batchProcessing').checked,flagActivity:$('flagActivity').value,siteContextEnabled:$('siteContextEnabled').checked,siteContext:$('siteContext').value,weaponEnabled:$('weaponEnabled').checked})});$('settings').close();await refresh();toast('Settings saved.')}catch(e){$('settingsError').textContent=e.message}};
 document.addEventListener('click',async e=>{
  const action=e.target.closest('[data-action]');if(action){try{await api(`/api/videos/${action.dataset.id}/${action.dataset.action}`,{method:'POST'});await refresh()}catch(e){toast(e.message)}return}
  const row=e.target.closest('[data-select]');if(row){selected=row.dataset.select;render();return}

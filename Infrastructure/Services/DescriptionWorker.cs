@@ -169,11 +169,9 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
                 await Process(offset + half, count - half);
             }
         }
-        // Bounded image requests; context errors split the same batch without dropping frames.
-        // 10 rather than 6: the ~1k-token instruction block is re-sent once per batch, so
-        // fewer, larger batches cut that repeated overhead (a 39-frame video goes from 7
-        // requests to 4). If a batch does overflow the context the splitting above halves it.
-        const int batchSize = 10;
+        // Single-frame requests are the safe default. Larger groups can be enabled from the
+        // UI when testing on hardware with more memory; context errors still split safely.
+        var batchSize = config.BatchProcessing ? 10 : 1;
         for (var offset = 0; offset < paths.Length; offset += batchSize)
             await Process(offset, Math.Min(batchSize, paths.Length - offset));
         if (summary is null || processed != paths.Length) throw new UserError("Not all selected frames were described.", 502);
@@ -329,7 +327,7 @@ public sealed class DescriptionWorker(QueueStore store, IHttpClientFactory clien
         form.Add(new StringContent(JsonSerializer.Serialize(new {
             flag_activity = config.FlagActivity ?? "", site_context_enabled = config.SiteContextEnabled,
             site_context = config.SiteContext ?? "", weapon_enabled = config.WeaponEnabled,
-            person_labels = config.PersonLabels
+            person_labels = config.PersonLabels, batch_processing = config.BatchProcessing
         }), Encoding.UTF8, "application/json"), "settings");
         using var response = await client.PostAsync(config.Endpoint.TrimEnd('/') + "/api/describe", form, ct);
         using var doc = await ReadResponse(response, ct);

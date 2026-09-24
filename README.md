@@ -19,13 +19,16 @@ For normal development with .NET 10 installed globally, use `dotnet run`. Set `C
 
 The rest of this pipeline corresponds to the notebook's **JSON API path**, which does not apply YOLO filtering. Its batch path does apply YOLO; matching that experiment requires changing the notebook API to call the batch extraction/resilient-generation functions. The Gradio demo also has a stale default of 30 frames. Local FFmpeg decoding/resizing, FPS metadata, Ollama quantization, and image processing can differ from OpenCV/Transformers. Identical prompts do not guarantee identical descriptions. Local parsing marks malformed JSON as a failure and saves raw text instead of salvaging a truncated description.
 
-## Files
+## ADS / MVC structure
 
-- `Program.cs`: HTTP API, configuration, and durable queue.
-- `DescriptionWorker.cs`: background queue processing and model adapters.
-- `VideoTools.cs`: validation, preview images, frame extraction.
-- `wwwroot/`: plain HTML/CSS/JavaScript UI.
-- `data/`: uploaded videos, generated frames, queue state (created at runtime).
+- `Abstraction/`: interfaces, request models and domain entities.
+- `Infrastructure/`: processing services and helper classes.
+- `EntityFramework/`: repository implementations and reusable queries. The local demo currently uses a JSON-backed development repository behind `IQueueRepository`.
+- `Web/Controllers/` and `Web/Views/`: ASP.NET Core MVC controller, Razor views and reusable partials.
+- `wwwroot/`: JavaScript, CSS and static assets.
+- `data/`: uploaded videos, generated frames and queue state.
+
+The view uses Bootstrap 5.2.3. See `ADS-ARCHITECTURE.md` for the Telerik/Kendo extension point and the authentication/authorization boundary.
 
 The app pauses the queue at restart. Interrupted jobs return to queued status. Cancelling a remote notebook request stops waiting locally; it does not guarantee cancellation of GPU work on the remote server.
 
@@ -54,7 +57,7 @@ Local generation always filters the sampled frames through YOLO, even with label
 YOLO now runs once per second. Samples without detected people are discarded before selection. Up to 150 qualifying frames are selected evenly in chronological order. Labels distinguish multiple detections within each image only; sparse samples are not used to claim persistent person identity. The prompt merges repeated actions, limits the narrative to 200 words, and uses a sensitive, observable-cue-based suspicion threshold. A large image input can exceed the configured model context; the app surfaces that error rather than silently dropping frames.
 
 ## Bounded model requests
-Selected frames are now processed in chronological batches of at most six images. Context-size rejections recursively split only the rejected batch; no selected images are silently dropped. Each request receives the full prompt and a rolling narrative summary. Any positive suspicious/weapon flag is retained across batches. Raw batch results are saved beside the video in batch-responses.json. Summarization may lose detail or carry forward model mistakes; this change addresses request size, not verified accuracy.
+Batch processing is optional in Model settings. It is disabled by default and sends one selected frame per request. On stronger hardware it can be enabled to process up to ten chronological images per request. Context-size rejections recursively split only the rejected batch; no selected images are silently dropped. Each request receives the full prompt and a rolling narrative summary. Any positive suspicious/weapon flag is retained across batches. Raw batch results are saved beside the video in `batch-responses.json`.
 
 ## UI refresh
 The interface uses the supplied dashboard reference for spacing, a sidebar, rounded panels, a prominent video area, and a separate description card. The supplied PHR guide informs the Segoe UI font stack and primary palette (#106DB6, #ABC437, #EC1E32), with darker shades for readable status text. Summary counts use saved queue data. Desktop and 390px layouts, queue selection, and settings navigation were checked. The inference pipeline was not changed by this visual refresh.
